@@ -11,12 +11,21 @@ dependencies = [
     "pydantic>=2.14.2",
 ]
 
+[project.optional-dependencies]
+pdf = [
+    "pdfplumber>=0.11.10",
+]
+
 [build-system]
 requires = ["uv_build>=0.9.5,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "pdfplumber>=0.11.10",
     "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]  # lets tests import tests.golden
