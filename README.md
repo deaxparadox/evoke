@@ -26,7 +26,7 @@ Needs Docker with Compose. Run from the repo root.
    - Nothing has a hidden default: a missing value stops the stack with a message naming it.
 2. Start everything: `docker compose up -d --build`. Wait until `docker compose ps` shows all four services (`postgres`, `redis`, `seaweedfs`, `backend`) as healthy. The backend runs migrations on every start.
 3. Create an admin user: `docker compose exec backend python manage.py createsuperuser`.
-4. Open http://127.0.0.1:8000/admin/, log in, and add a user under Accounts > Users. (The admin has no styling yet, because nothing serves static files.)
+4. Open http://127.0.0.1:8000/admin/, log in, and add a user under Accounts > Users.
 5. Stop and delete the data: `docker compose down -v`.
 
 ## Run the checks (per project)

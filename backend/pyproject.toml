@@ -8,6 +8,7 @@ dependencies = [
     "django>=5.2.8,<5.3",
     "psycopg[binary]>=3.3.6",
     "ragling",
+    "whitenoise>=6.12.0",
 ]
 
 [dependency-groups]
