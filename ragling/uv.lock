@@ -565,10 +565,14 @@ dependencies = [
 pdf = [
     { name = "pdfplumber" },
 ]
+pdf-pdfium = [
+    { name = "pypdfium2" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "pdfplumber" },
+    { name = "pypdfium2" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -577,12 +581,14 @@ dev = [
 requires-dist = [
     { name = "pdfplumber", marker = "extra == 'pdf'", specifier = ">=0.11.10" },
     { name = "pydantic", specifier = ">=2.14.2" },
+    { name = "pypdfium2", marker = "extra == 'pdf-pdfium'", specifier = ">=5.14.0" },
 ]
-provides-extras = ["pdf"]
+provides-extras = ["pdf", "pdf-pdfium"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pdfplumber", specifier = ">=0.11.10" },
+    { name = "pypdfium2", specifier = ">=5.14.0" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "ruff", specifier = ">=0.17.3" },
 ]
