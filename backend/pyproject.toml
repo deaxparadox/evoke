@@ -16,6 +16,9 @@ dev = [
     "pytest-django>=4.14.0",
     "ruff>=0.17.3",
 ]
+prod = [
+    "gunicorn>=26.2.0",
+]
 
 [tool.uv.sources]
 ragling = { path = "../ragling", editable = true }
