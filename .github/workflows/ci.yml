@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+env:
+  UV_VERSION: "0.9.5"
+
+jobs:
+  ragling:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ragling
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run pytest
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg18-trixie
+        env:
+          POSTGRES_DB: evoke
+          POSTGRES_USER: evoke
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U evoke -d evoke"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Throwaway values for the CI database service above. Not secrets.
+      SECRET_KEY: ci-only-not-a-secret
+      ALLOWED_HOSTS: localhost
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: evoke
+      POSTGRES_USER: evoke
+      POSTGRES_PASSWORD: ci-only-password
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv run pytest
