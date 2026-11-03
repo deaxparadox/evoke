@@ -6,6 +6,7 @@ from collections.abc import Sequence
 import pytest
 
 from ragling.core import Chunk, Location
+from ragling.ports import Embedder, Parser, VectorStore
 
 
 class ParserContract:
@@ -16,6 +17,10 @@ class ParserContract:
     def sample_data(self) -> bytes: raise NotImplementedError
 
     def sample_pages(self) -> int: raise NotImplementedError
+
+    def test_conforms_to_port(self):
+        # isinstance on a Protocol checks that the names exist, not their signatures (mypy covers those).
+        assert isinstance(self.make_parser(), Parser)
 
     def test_has_name_and_version(self):
         p = self.make_parser()
@@ -51,6 +56,10 @@ class ParserContract:
 
 class EmbedderContract:
     def make_embedder(self): raise NotImplementedError
+
+    def test_conforms_to_port(self):
+        # isinstance on a Protocol checks that the names exist, not their signatures (mypy covers those).
+        assert isinstance(self.make_embedder(), Embedder)
 
     def test_identity(self):
         e = self.make_embedder()
@@ -91,6 +100,10 @@ class VectorStoreContract:
     def v(self, *xs: float) -> Sequence[float]:
         padded = list(xs) + [0.0] * (self.dims - len(xs))
         return padded[: self.dims]
+
+    def test_conforms_to_port(self):
+        # isinstance on a Protocol checks that the names exist, not their signatures (mypy covers those).
+        assert isinstance(self.make_store(), VectorStore)
 
     def test_nearest_first_and_k_limits(self):
         s = self.make_store()

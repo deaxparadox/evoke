@@ -5,7 +5,7 @@ Each port has a shared contract suite in `ragling.testing` that every adapter mu
 """
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -21,6 +21,7 @@ class Hit(BaseModel):
     score: float
 
 
+@runtime_checkable
 class Parser(Protocol):
     """Turns one page of a file into a Segment of blocks.
 
@@ -38,6 +39,7 @@ class Parser(Protocol):
         ...
 
 
+@runtime_checkable
 class Embedder(Protocol):
     model_name: str
     dimensions: int
@@ -47,6 +49,7 @@ class Embedder(Protocol):
     def embed_query(self, text: str) -> list[float]: ...
 
 
+@runtime_checkable
 class VectorStore(Protocol):
     """Stores chunks with vectors. Every call is scoped to one owner.
 
