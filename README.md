@@ -46,3 +46,17 @@ uv run scripts/s3_smoke.py
 ```
 
 It signs requests with your S3 keys, checks the bucket exists, then puts, reads back and deletes a small object. `boto3` is installed only in uv's temporary environment for this script, not in any project. It never creates the bucket. It is a manual check and does not run in CI.
+
+## Browser test for the admin (Playwright)
+
+Runs a real Chromium against the running stack. It is not part of the default `pytest` run or CI.
+
+```
+cd backend
+uv sync --locked
+uv run playwright install chromium        # downloads into backend/.playwright-browsers (project-local)
+# with the stack up and an admin created (step 3 of "Start the stack"):
+E2E_ADMIN_USER=admin E2E_ADMIN_PASSWORD='...' uv run --env-file .env pytest e2e
+```
+
+`E2E_ADMIN_USER` and `E2E_ADMIN_PASSWORD` are required; the test fails if they are missing. `E2E_BASE_URL` is optional (default `http://127.0.0.1:8000`). Each run leaves one new user in that stack's database; `docker compose down -v` clears it.
