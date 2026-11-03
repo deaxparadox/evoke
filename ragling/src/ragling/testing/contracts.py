@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 import pytest
 
-from ragling.core import Chunk, Location
+from ragling.core import Chunk, Location, SegmentStatus
 from ragling.ports import Embedder, Parser, VectorStore
 
 
@@ -34,6 +34,7 @@ class ParserContract:
         for page in range(1, self.sample_pages() + 1):
             seg = p.parse_page(data, page, "f1")
             assert seg.index == page
+            assert seg.status is SegmentStatus.PARSED  # a parser that returns a segment succeeded
             for b in seg.blocks:
                 assert b.text.strip()
                 assert b.location.file_id == "f1" and b.location.page == page

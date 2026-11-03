@@ -4,7 +4,7 @@ import hashlib
 import math
 from collections.abc import Sequence
 
-from ragling.core import Block, BlockKind, Chunk, Location, Segment
+from ragling.core import Block, BlockKind, Chunk, Location, Segment, SegmentStatus
 from ragling.ports import Hit
 
 
@@ -87,4 +87,4 @@ class FakeParser:
             )
             for i, text in enumerate(paragraphs, start=1)
         ]
-        return Segment(index=page, blocks=blocks)
+        return Segment(index=page, status=SegmentStatus.PARSED, blocks=blocks)

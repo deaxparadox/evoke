@@ -3,7 +3,7 @@
 from importlib.metadata import version as _dist_version
 from io import BytesIO
 
-from ragling.core import Segment
+from ragling.core import Segment, SegmentStatus
 from ragling.formats.pdf._layout import build_blocks
 
 
@@ -30,6 +30,7 @@ class PdfplumberParser:
             lines = p.extract_text_lines(strip=True)  # top-left origin, points, top to bottom
             return Segment(
                 index=page,
+                status=SegmentStatus.PARSED,
                 blocks=build_blocks(lines, file_id, page, f"{self.name}@{self.version}"),
                 width=float(p.width),
                 height=float(p.height),

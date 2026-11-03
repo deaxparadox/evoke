@@ -2,7 +2,7 @@
 
 from importlib.metadata import version as _dist_version
 
-from ragling.core import Segment
+from ragling.core import Segment, SegmentStatus
 from ragling.formats.pdf._layout import build_blocks
 
 
@@ -41,6 +41,7 @@ class Pypdfium2Parser:
             lines.sort(key=lambda line: (line["top"], line["x0"]))
             return Segment(
                 index=page,
+                status=SegmentStatus.PARSED,
                 blocks=build_blocks(lines, file_id, page, f"{self.name}@{self.version}"),
                 width=float(width),
                 height=float(height),
