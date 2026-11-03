@@ -18,6 +18,10 @@ pdf = [
 pdf-pdfium = [
     "pypdfium2>=5.14.0",
 ]
+embed-local = [
+    "sentence-transformers>=6.2.0",
+    "torch>=2.2",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.5,<0.10.0"]
@@ -34,6 +38,17 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]  # lets tests import tests.golden
+addopts = "-m 'not embed_local'"  # the real-model tests run only on purpose: pytest -m embed_local
+markers = ["embed_local: loads the real voyage-4-nano model (needs the embed-local extra and EVOKE_EMBED_REVISION)"]
+
+# CPU-only torch (ADR 0004). Applies when ragling itself is the project; the worker image repeats it.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.mypy]
 python_version = "3.13"
@@ -44,3 +59,7 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = "pypdfium2"
 ignore_missing_imports = true  # pypdfium2 ships no py.typed marker; only this module is exempt
+
+[[tool.mypy.overrides]]
+module = "sentence_transformers"
+ignore_missing_imports = true  # only imported inside _load_model, and only with the embed-local extra

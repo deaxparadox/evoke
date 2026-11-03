@@ -441,8 +441,10 @@ requires-dist = [
     { name = "pdfplumber", marker = "extra == 'pdf'", specifier = ">=0.11.10" },
     { name = "pydantic", specifier = ">=2.14.2" },
     { name = "pypdfium2", marker = "extra == 'pdf-pdfium'", specifier = ">=5.14.0" },
+    { name = "sentence-transformers", marker = "extra == 'embed-local'", specifier = ">=6.2.0" },
+    { name = "torch", marker = "extra == 'embed-local'", specifier = ">=2.2", index = "https://download.pytorch.org/whl/cpu" },
 ]
-provides-extras = ["pdf", "pdf-pdfium"]
+provides-extras = ["pdf", "pdf-pdfium", "embed-local"]
 
 [package.metadata.requires-dev]
 dev = [
