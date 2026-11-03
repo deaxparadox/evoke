@@ -35,3 +35,14 @@ Needs Docker with Compose. Run from the repo root.
 cd ragling && uv sync --locked && uv run ruff check && uv run pytest
 cd backend && uv sync --locked && uv run ruff check && uv run --env-file .env pytest   # needs a reachable Postgres
 ```
+
+## Check that S3 (SeaweedFS) works
+
+With the stack up, from the repo root (needs the root `.env` values exported):
+
+```
+set -a; . ./.env; set +a
+uv run scripts/s3_smoke.py
+```
+
+It signs requests with your S3 keys, checks the bucket exists, then puts, reads back and deletes a small object. `boto3` is installed only in uv's temporary environment for this script, not in any project. It never creates the bucket. It is a manual check and does not run in CI.
