@@ -85,7 +85,7 @@ class Location(_Model):
             raise ValueError("location needs a page or a time range, not both or neither")
         if self.bbox is not None and self.page is None:
             raise ValueError("bbox needs a page")
-        if has_time and self.t_start > self.t_end:
+        if self.t_start is not None and self.t_end is not None and self.t_start > self.t_end:
             raise ValueError("t_start must not be after t_end")
         return self
 

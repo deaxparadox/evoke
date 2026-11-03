@@ -29,7 +29,7 @@ class FakeEmbedder:
 
 
 class InMemoryVectorStore:
-    def __init__(self):
+    def __init__(self) -> None:
         self._rows: dict[tuple[str, str, str, str], tuple[Chunk, list[float]]] = {}
 
     @staticmethod

@@ -32,7 +32,7 @@ Needs Docker with Compose. Run from the repo root.
 ## Run the checks (per project)
 
 ```
-cd ragling && uv sync --locked && uv run ruff check && uv run pytest
+cd ragling && uv sync --locked && uv run ruff check && uv run mypy && uv run pytest
 cd backend && uv sync --locked && uv run ruff check && uv run --env-file .env pytest   # needs a reachable Postgres
 ```
 
