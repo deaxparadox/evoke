@@ -91,12 +91,22 @@ def _chunk(file_id: str, page: int, n: int, text: str | None = None) -> Chunk:
 
 
 class VectorStoreContract:
-    """Uses 3-dimensional vectors; a store whose column size is fixed must accept them or override `dims`."""
+    """Uses 3-dimensional vectors; a store whose column size is fixed must accept them or override `dims`.
+
+    Owners are `u1`, `u2`; files are `f`, `g` (owned by `u1`) and `h` (owned by `u2`), unless a subclass needs real
+    ids (a database with foreign keys): its `make_store` then sets `self.u1`, `self.u2`, `self.f`, `self.g`,
+    `self.h` before returning. Every test calls
+    `make_store()` first, so the ids are in place before they are read.
+    """
 
     dims = 3
     model = "m1"
+    u1, u2, f, g, h = "u1", "u2", "f", "g", "h"
 
     def make_store(self): raise NotImplementedError
+
+    def cid(self, file_id: str, page: int, n: int) -> str:
+        return f"{file_id}:p{page}:c{n}"
 
     def v(self, *xs: float) -> Sequence[float]:
         padded = list(xs) + [0.0] * (self.dims - len(xs))
@@ -108,47 +118,49 @@ class VectorStoreContract:
 
     def test_nearest_first_and_k_limits(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1), self.v(1, 0)), (_chunk("f", 1, 2), self.v(0, 1)), (_chunk("f", 1, 3), self.v(1, 1))], self.model)
-        hits = s.search("u1", self.v(1, 0), self.model, 2)
-        assert [h.chunk_id for h in hits] == ["f:p1:c1", "f:p1:c3"]
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1), self.v(1, 0)), (_chunk(self.f, 1, 2), self.v(0, 1)), (_chunk(self.f, 1, 3), self.v(1, 1))], self.model)
+        hits = s.search(self.u1, self.v(1, 0), self.model, 2)
+        assert [h.chunk_id for h in hits] == [self.cid(self.f, 1, 1), self.cid(self.f, 1, 3)]
         assert hits[0].score >= hits[1].score
 
     def test_search_on_empty_store_is_empty(self):
-        assert self.make_store().search("u1", self.v(1), self.model, 5) == []
+        assert self.make_store().search(self.u1, self.v(1), self.model, 5) == []
 
     def test_owner_never_sees_other_owners_rows(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1), self.v(1, 0))], self.model)
-        assert s.search("u2", self.v(1, 0), self.model, 5) == []
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1), self.v(1, 0))], self.model)
+        assert s.search(self.u2, self.v(1, 0), self.model, 5) == []
 
     def test_other_model_name_is_not_mixed(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1), self.v(1, 0))], self.model)
-        assert s.search("u1", self.v(1, 0), "other-model", 5) == []
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1), self.v(1, 0))], self.model)
+        assert s.search(self.u1, self.v(1, 0), "other-model", 5) == []
 
     def test_upsert_replaces_same_chunk_id(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1, "old"), self.v(1, 0))], self.model)
-        s.upsert("u1", [(_chunk("f", 1, 1, "new"), self.v(1, 0))], self.model)
-        hits = s.search("u1", self.v(1, 0), self.model, 5)
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1, "old"), self.v(1, 0))], self.model)
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1, "new"), self.v(1, 0))], self.model)
+        hits = s.search(self.u1, self.v(1, 0), self.model, 5)
         assert [h.text for h in hits] == ["new"]
 
     def test_delete_page_only_removes_that_page(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1), self.v(1, 0)), (_chunk("f", 2, 1), self.v(1, 0))], self.model)
-        s.delete_page("u1", "f", 1)
-        assert [h.chunk_id for h in s.search("u1", self.v(1, 0), self.model, 5)] == ["f:p2:c1"]
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1), self.v(1, 0)), (_chunk(self.f, 2, 1), self.v(1, 0))], self.model)
+        s.delete_page(self.u1, self.f, 1)
+        assert [h.chunk_id for h in s.search(self.u1, self.v(1, 0), self.model, 5)] == [self.cid(self.f, 2, 1)]
 
     def test_delete_file_only_removes_that_file(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1), self.v(1, 0)), (_chunk("g", 1, 1), self.v(1, 0))], self.model)
-        s.delete_file("u1", "f")
-        assert [h.chunk_id for h in s.search("u1", self.v(1, 0), self.model, 5)] == ["g:p1:c1"]
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1), self.v(1, 0)), (_chunk(self.g, 1, 1), self.v(1, 0))], self.model)
+        s.delete_file(self.u1, self.f)
+        assert [h.chunk_id for h in s.search(self.u1, self.v(1, 0), self.model, 5)] == [self.cid(self.g, 1, 1)]
 
     def test_delete_does_not_touch_other_owners(self):
         s = self.make_store()
-        s.upsert("u1", [(_chunk("f", 1, 1), self.v(1, 0))], self.model)
-        s.upsert("u2", [(_chunk("f", 1, 1), self.v(1, 0))], self.model)
-        s.delete_file("u1", "f")
-        s.delete_page("u1", "f", 1)
-        assert len(s.search("u2", self.v(1, 0), self.model, 5)) == 1
+        s.upsert(self.u1, [(_chunk(self.f, 1, 1), self.v(1, 0))], self.model)
+        s.upsert(self.u2, [(_chunk(self.h, 1, 1), self.v(1, 0))], self.model)
+        s.delete_file(self.u1, self.f)
+        s.delete_page(self.u1, self.f, 1)
+        s.delete_file(self.u1, self.h)  # not u1's file: must not touch u2's rows
+        s.delete_page(self.u1, self.h, 1)
+        assert len(s.search(self.u2, self.v(1, 0), self.model, 5)) == 1

@@ -2,7 +2,7 @@
 
 from django.conf import settings
 from django.db import models
-from pgvector.django import VectorField
+from pgvector.django import HnswIndex, VectorField
 from ragling.core.models import ContentKind, SegmentStatus
 
 EMBEDDING_DIMENSIONS = 1024  # ADR 0003; a model with another size needs a new column and a re-embed
@@ -89,4 +89,5 @@ class ChunkRow(models.Model):
         indexes = [
             models.Index(fields=["owner"]),
             models.Index(fields=["file", "page"]),
-        ]  # the HNSW index on `embedding` comes with the store (FEAT-20261103-1305)
+            HnswIndex(name="chunk_embedding_hnsw", fields=["embedding"], m=16, ef_construction=64, opclasses=["vector_cosine_ops"]),
+        ]
