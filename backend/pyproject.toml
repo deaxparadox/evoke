@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.43.123",
+    "celery[redis]>=5.6.3",
     "django>=5.2.8,<5.3",
     "djangorestframework>=3.18.3",
     "pgvector>=0.5.1",
@@ -14,8 +15,15 @@ dependencies = [
     "whitenoise>=6.12.0",
 ]
 
+[project.optional-dependencies]
+# Only the worker image installs this (ADR 0004): the parsers, the local embedding model and CPU-only torch.
+worker = [
+    "ragling[pdf,pdf-pdfium,embed-local]",
+]
+
 [dependency-groups]
 dev = [
+    "ragling[pdf,pdf-pdfium]",
     "pytest>=9.2.0",
     "pytest-django>=4.14.0",
     "pytest-playwright>=0.10.0",
@@ -27,6 +35,12 @@ prod = [
 
 [tool.uv.sources]
 ragling = { path = "../ragling", editable = true }
+torch = { index = "pytorch-cpu" }  # CPU-only wheels (ADR 0004); the same setting ragling has for itself
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

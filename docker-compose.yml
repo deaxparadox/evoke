@@ -49,9 +49,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: evoke-backend
     env_file: backend/.env
-    environment:
-      # Inside Compose the database is reached by service name; credentials come from the root .env.
+    environment: &backend-env
+      # Inside Compose the other services are reached by name; credentials come from the root .env.
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
@@ -61,10 +62,13 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
       S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+      CELERY_BROKER_URL: redis://redis:6379/0
     # Migrations run on every start, on purpose, so a fresh stack is usable at once.
     command: sh -c "python manage.py migrate --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
@@ -75,7 +79,39 @@ services:
       retries: 10
       start_period: 15s
 
+  # Same code as `backend`, but this image also has the PDF parsers, CPU-only torch and the embedding model (ADR 0004).
+  celery:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        UV_EXTRAS: "--extra worker"
+    image: evoke-worker
+    env_file: backend/.env
+    environment:
+      <<: *backend-env
+      EMBED_MODEL_REVISION: ${EMBED_MODEL_REVISION:?set EMBED_MODEL_REVISION in .env}
+      HF_HOME: /models  # the downloaded model is kept in a volume
+    # One process: parsing and embedding are CPU-heavy and the model is loaded once per process.
+    command: celery -A config worker -l info --concurrency=1
+    volumes:
+      - model-cache:/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
 volumes:
   postgres-data:
   redis-data:
   seaweedfs-data:
+  model-cache:

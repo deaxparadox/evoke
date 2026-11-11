@@ -6,8 +6,8 @@ import uuid
 from django.conf import settings
 from django.db import transaction
 
-from .models import File, Job
-from .queue import enqueue_ingest
+from .models import File, Job, SegmentRow
+from .queue import enqueue_ingest, enqueue_retry
 from .storage import storage_key
 
 PDF = "application/pdf"
@@ -40,3 +40,23 @@ def create_upload(user, upload, storage) -> File:
         job = Job.objects.create(file=file, kind=Job.Kind.INGEST)
         transaction.on_commit(lambda: enqueue_ingest(job.pk))
     return file
+
+
+class RetryRefused(Exception):
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+def start_retry(file: File, page: int, adapter: str | None) -> Job:
+    """Queue a retry of one page, unless the file already has a job queued or running."""
+    with transaction.atomic():
+        File.objects.select_for_update().get(pk=file.pk)  # two retry requests for one file take turns here
+        if not SegmentRow.objects.filter(file=file, index=page).exists():
+            raise RetryRefused(404, f"Page {page} does not exist.")
+        if Job.objects.filter(file=file, status__in=[Job.Status.QUEUED, Job.Status.RUNNING]).exists():
+            raise RetryRefused(409, "This file has a job queued or running; wait for it to finish.")
+        job = Job.objects.create(file=file, kind=Job.Kind.RETRY_PAGE)
+        transaction.on_commit(lambda: enqueue_retry(job.pk, page, adapter))
+    return job

@@ -7,14 +7,16 @@ ENV UV_LINK_MODE=copy PYTHONUNBUFFERED=1 PATH="/app/backend/.venv/bin:$PATH"
 WORKDIR /app
 COPY ragling ragling
 WORKDIR /app/backend
+# The worker image is the same Dockerfile built with UV_EXTRAS="--extra worker" (see docker-compose.yml).
+ARG UV_EXTRAS=""
 # Dependencies first, so Docker can cache this layer.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --locked --no-dev --group prod --no-install-project
+RUN uv sync --locked --no-dev --group prod $UV_EXTRAS --no-install-project
 COPY backend/ .
-RUN uv sync --locked --no-dev --group prod
+RUN uv sync --locked --no-dev --group prod $UV_EXTRAS
 # collectstatic imports settings, which need the required values. Throwaway values for this one command only; not kept in the image.
 RUN SECRET_KEY=build-only ALLOWED_HOSTS=localhost POSTGRES_HOST=none POSTGRES_PORT=0 POSTGRES_DB=none POSTGRES_USER=none POSTGRES_PASSWORD=none \
-    S3_ENDPOINT=none S3_ACCESS_KEY=none S3_SECRET_KEY=none S3_BUCKET=none \
+    S3_ENDPOINT=none S3_ACCESS_KEY=none S3_SECRET_KEY=none S3_BUCKET=none CELERY_BROKER_URL=none \
     python manage.py collectstatic --noinput
 
 EXPOSE 8000

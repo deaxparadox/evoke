@@ -5,14 +5,14 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import services
+from . import services, wiring
 from .models import File, Job, SegmentRow
-from .serializers import FileSerializer, PageSerializer, UploadSerializer
-from .storage import S3Storage
-
-
-def get_storage():
-    return S3Storage.from_settings()
+from .serializers import (
+    FileSerializer,
+    PageSerializer,
+    RetrySerializer,
+    UploadSerializer,
+)
 
 
 def own_files(request):
@@ -31,7 +31,7 @@ class FileListView(generics.ListAPIView):
         data = UploadSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         try:
-            file = services.create_upload(request.user, data.validated_data["file"], get_storage())
+            file = services.create_upload(request.user, data.validated_data["file"], wiring.get_storage())
         except services.UploadError as e:
             return Response({"detail": e.message}, status=e.status_code)
         except (BotoCoreError, ClientError):
@@ -52,3 +52,15 @@ class FilePagesView(APIView):
         file = get_object_or_404(own_files(request), pk=pk)
         pages = SegmentRow.objects.filter(file=file).order_by("index")
         return Response(PageSerializer(pages, many=True).data)
+
+
+class PageRetryView(APIView):
+    def post(self, request, pk, page):
+        file = get_object_or_404(own_files(request), pk=pk)
+        data = RetrySerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        try:
+            job = services.start_retry(file, page, data.validated_data.get("adapter"))
+        except services.RetryRefused as e:
+            return Response({"detail": e.message}, status=e.status_code)
+        return Response({"job_id": job.pk}, status=status.HTTP_202_ACCEPTED)

@@ -21,7 +21,7 @@ Needs Docker with Compose. Run from the repo root.
    cp .env.example .env
    cp backend/.env.example backend/.env
    ```
-   - `.env` (Compose): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`. Optional: `POSTGRES_HOST_PORT` if 5432 is taken on your machine.
+   - `.env` (Compose): `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `EMBED_MODEL_REVISION` (commit hash of the embedding model; Compose stops without it). The first start of the `celery` service builds a large image (CPU-only torch) and downloads the model into the `model-cache` volume. Optional: `POSTGRES_HOST_PORT` if 5432 is taken on your machine.
    - `backend/.env`: under Compose only `SECRET_KEY` and `ALLOWED_HOSTS` (for example `localhost,127.0.0.1`) are needed. The `POSTGRES_*` lines are used only when running the backend outside Compose, and Compose overrides them.
    - Nothing has a hidden default: a missing value stops the stack with a message naming it.
 2. Start everything: `docker compose up -d --build`. Wait until `docker compose ps` shows all four services (`postgres`, `redis`, `seaweedfs`, `backend`) as healthy. The backend runs migrations on every start.

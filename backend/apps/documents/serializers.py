@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import File, SegmentRow
+from .wiring import PARSERS
 
 
 class UploadSerializer(serializers.Serializer):
@@ -21,3 +22,7 @@ class PageSerializer(serializers.ModelSerializer):
     class Meta:
         model = SegmentRow
         fields = ["page", "status", "content_kind", "error", "attempts"]
+
+
+class RetrySerializer(serializers.Serializer):
+    adapter = serializers.ChoiceField(choices=PARSERS, required=False)

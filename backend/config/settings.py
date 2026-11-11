@@ -24,6 +24,7 @@ _REQUIRED = (
     'SECRET_KEY', 'ALLOWED_HOSTS',
     'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
     'S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET',
+    'CELERY_BROKER_URL',
 )
 _missing = [name for name in _REQUIRED if not os.environ.get(name)]
 if _missing:
@@ -99,6 +100,22 @@ REST_FRAMEWORK = {
 
 # Tuning knob with a safe default (notepad decision 13): the largest upload accepted, in bytes.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# Celery (namespace CELERY_ in config/celery.py).
+CELERY_BROKER_URL = os.environ['CELERY_BROKER_URL']
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get('CELERY_TASK_SOFT_TIME_LIMIT', '600'))  # seconds, per task
+CELERY_TASK_TIME_LIMIT = int(os.environ.get('CELERY_TASK_TIME_LIMIT', '900'))
+# Redis re-delivers a task not acknowledged within this time; it must be longer than any task can run.
+CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': CELERY_TASK_TIME_LIMIT * 2}
+CELERY_TASK_ACKS_LATE = True  # acknowledge after the work, so a crashed worker's task is delivered again and resumes
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # one long task at a time per worker process
+
+# Ingestion wiring. Tuning knobs with code defaults; the model revision has none and is checked by the worker at boot.
+EMBED_MODEL_REVISION = os.environ.get('EMBED_MODEL_REVISION', '')
+PDF_PARSER = os.environ.get('PDF_PARSER', 'pdfplumber')  # 'pdfplumber' or 'pypdfium2'
+CHUNK_MAX_WORDS = int(os.environ.get('CHUNK_MAX_WORDS', '200'))
+CHUNK_OVERLAP_WORDS = int(os.environ.get('CHUNK_OVERLAP_WORDS', '40'))
 
 DATABASES = {
     'default': {

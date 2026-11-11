@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
-from apps.documents import views
+from apps.documents import wiring
 from apps.documents.models import File, Job, SegmentRow
 from apps.documents.storage import InMemoryStorage
 
@@ -16,7 +16,7 @@ PDF_BYTES = b"%PDF-1.4 fake"
 @pytest.fixture
 def storage(monkeypatch):
     s = InMemoryStorage()
-    monkeypatch.setattr(views, "get_storage", lambda: s)
+    monkeypatch.setattr(wiring, "get_storage", lambda: s)
     return s
 
 
@@ -137,7 +137,7 @@ def test_a_storage_failure_leaves_no_file_row_and_no_job(alice, queued, monkeypa
         def put(self, key, data):
             raise EndpointConnectionError(endpoint_url="http://nowhere")
 
-    monkeypatch.setattr(views, "get_storage", lambda: Broken())
+    monkeypatch.setattr(wiring, "get_storage", lambda: Broken())
     r = logged_in(alice).post("/api/files", {"file": pdf()}, format="multipart")
     assert r.status_code == 503
     assert not File.objects.exists() and not Job.objects.exists() and queued == []
@@ -199,7 +199,7 @@ def test_upload_through_the_api_lands_in_real_seaweedfs(alice, queued):
     r = logged_in(alice).post("/api/files", {"file": pdf()}, format="multipart")
     assert r.status_code == 201
     key = File.objects.get().storage_key
-    real = views.get_storage()
+    real = wiring.get_storage()
     try:
         assert real.get(key) == PDF_BYTES
     finally:
