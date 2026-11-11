@@ -14,6 +14,7 @@ COPY backend/ .
 RUN uv sync --locked --no-dev --group prod
 # collectstatic imports settings, which need the required values. Throwaway values for this one command only; not kept in the image.
 RUN SECRET_KEY=build-only ALLOWED_HOSTS=localhost POSTGRES_HOST=none POSTGRES_PORT=0 POSTGRES_DB=none POSTGRES_USER=none POSTGRES_PASSWORD=none \
+    S3_ENDPOINT=none S3_ACCESS_KEY=none S3_SECRET_KEY=none S3_BUCKET=none \
     python manage.py collectstatic --noinput
 
 EXPOSE 8000

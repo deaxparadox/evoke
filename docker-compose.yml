@@ -57,6 +57,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
     # Migrations run on every start, on purpose, so a fresh stack is usable at once.
     command: sh -c "python manage.py migrate --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000"
     depends_on:

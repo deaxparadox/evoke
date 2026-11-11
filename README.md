@@ -34,6 +34,7 @@ Needs Docker with Compose. Run from the repo root.
 ```
 cd ragling && uv sync --locked && uv run ruff check && uv run mypy && uv run pytest
 cd backend && uv sync --locked && uv run ruff check && uv run --env-file .env pytest   # needs a reachable Postgres
+cd backend && uv run --env-file .env pytest -m integration   # on purpose: real SeaweedFS round trip, stack up
 ```
 
 ## Check that S3 (SeaweedFS) works

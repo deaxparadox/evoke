@@ -5,6 +5,7 @@ description = "Django backend: API, admin, Celery tasks, pgvector store"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "boto3>=1.43.123",
     "django>=5.2.8,<5.3",
     "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.6",
@@ -28,6 +29,8 @@ ragling = { path = "../ragling", editable = true }
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
+addopts = "-m 'not integration'"  # integration tests need the running stack: pytest -m integration
+markers = ["integration: talks to the real Compose services (SeaweedFS)"]
 testpaths = ["tests"]  # e2e/ needs the running stack: run it on purpose with `pytest e2e`
 
 [tool.ruff]

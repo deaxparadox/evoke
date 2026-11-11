@@ -23,6 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 _REQUIRED = (
     'SECRET_KEY', 'ALLOWED_HOSTS',
     'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
+    'S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET',
 )
 _missing = [name for name in _REQUIRED if not os.environ.get(name)]
 if _missing:
@@ -82,6 +83,11 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+
+S3_ENDPOINT = os.environ['S3_ENDPOINT']
+S3_ACCESS_KEY = os.environ['S3_ACCESS_KEY']
+S3_SECRET_KEY = os.environ['S3_SECRET_KEY']
+S3_BUCKET = os.environ['S3_BUCKET']
 
 DATABASES = {
     'default': {
