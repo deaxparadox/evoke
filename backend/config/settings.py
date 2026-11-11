@@ -114,6 +114,8 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # one long task at a time per worker proc
 # Ingestion wiring. Tuning knobs with code defaults; the model revision has none and is checked by the worker at boot.
 EMBED_MODEL_REVISION = os.environ.get('EMBED_MODEL_REVISION', '')
 PDF_PARSER = os.environ.get('PDF_PARSER', 'pdfplumber')  # 'pdfplumber' or 'pypdfium2'
+TASK_MAX_DELIVERIES = int(os.environ.get('TASK_MAX_DELIVERIES', '4'))  # first run + 3 recoveries after a worker death
+MAX_PDF_PAGES = int(os.environ.get('MAX_PDF_PAGES', '1000'))  # a PDF with more pages is refused by the worker
 CHUNK_MAX_WORDS = int(os.environ.get('CHUNK_MAX_WORDS', '200'))
 CHUNK_OVERLAP_WORDS = int(os.environ.get('CHUNK_OVERLAP_WORDS', '40'))
 

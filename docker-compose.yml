@@ -94,6 +94,8 @@ services:
       HF_HOME: /models  # the downloaded model is kept in a volume
     # One process: parsing and embedding are CPU-heavy and the model is loaded once per process.
     command: celery -A config worker -l info --concurrency=1
+    # A parse that eats memory is killed by the kernel at this limit; the job then recovers (BUG-20261111-2210). 4g is a guess, to be measured.
+    mem_limit: ${WORKER_MEMORY_LIMIT:-4g}
     volumes:
       - model-cache:/models
     depends_on:

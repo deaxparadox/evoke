@@ -24,13 +24,18 @@ class SpyParser:
     name = "spy"
     version = "1"
 
-    def __init__(self, fail=(), crash=()):
+    def __init__(self, fail=(), crash=(), crash_on_open=False):
         self.real, self.fail, self.crash, self.parsed = PdfplumberParser(), set(fail), set(crash), []
+        self.crash_on_open, self.calls = crash_on_open, []  # `calls` records every attempt, including ones that crash
 
     def page_count(self, data):
+        self.calls.append("open")
+        if self.crash_on_open:
+            raise Crash
         return self.real.page_count(data)
 
     def parse_page(self, data, page, file_id):
+        self.calls.append(page)
         if page in self.crash:
             raise Crash
         if page in self.fail:
@@ -108,20 +113,101 @@ def test_one_failing_page_is_marked_and_the_rest_continue(alice, storage, use_pa
     assert set(ChunkRow.objects.filter(file=job.file).values_list("page", flat=True)) == {1, 3}
 
 
-def test_a_crash_leaves_finished_pages_saved_and_a_rerun_resumes(alice, storage, use_parser):
-    use_parser(SpyParser(crash=[2]))
+def test_a_page_that_kills_the_worker_is_given_up_and_the_rest_continue(alice, storage, use_parser):
+    spy = use_parser(SpyParser(crash=[2]))  # page 2 crashes the process every time it is tried
     job = make_job(alice, storage)
     with pytest.raises(Crash):
         tasks.ingest_file(job.pk)
     job.refresh_from_db()
-    assert job.status == Job.Status.RUNNING
+    assert job.status == Job.Status.RUNNING and job.current_page == 2
     assert [s.status for s in pages(job).values()] == ["parsed", "pending", "pending"]
-    resumed = use_parser(SpyParser())
     tasks.ingest_file(job.pk)  # the broker delivers the task again
     job.refresh_from_db()
-    assert job.status == Job.Status.COMPLETED
-    assert resumed.parsed == [2, 3]  # page 1 was not parsed again
-    assert ChunkRow.objects.filter(file=job.file).count() == len({c.chunk_id for c in ChunkRow.objects.filter(file=job.file)})
+    segs = pages(job)
+    assert job.status == Job.Status.COMPLETED_WITH_ERRORS and job.current_page is None
+    assert (segs[1].status, segs[2].status, segs[3].status) == ("parsed", "failed", "parsed")
+    assert "worker process stopped" in segs[2].error and segs[2].attempts == 1
+    assert spy.calls.count(2) == 1  # tried once, never again
+    assert spy.calls.count(1) == 1  # a parsed page is not parsed again
+
+
+def test_a_crash_that_happens_every_delivery_stops_at_the_cap(alice, storage, use_parser, settings):
+    settings.TASK_MAX_DELIVERIES = 4
+    spy = use_parser(SpyParser(crash_on_open=True))  # dies before any page: there is no page to blame
+    job = make_job(alice, storage)
+    for _ in range(10):  # what the broker would do: send it again and again
+        try:
+            tasks.ingest_file(job.pk)
+        except Crash:
+            pass
+    job.refresh_from_db()
+    assert spy.calls == ["open"] * 4
+    assert job.status == Job.Status.FAILED and "stopped 4 times" in job.error and job.finished_at
+    assert job.deliveries == 5  # the fifth delivery is the one that gave up; later ones do not count
+
+
+def test_the_cap_is_exact(alice, storage, use_parser, settings):
+    settings.TASK_MAX_DELIVERIES = 2
+    spy = use_parser(SpyParser(crash_on_open=True))
+    job = make_job(alice, storage)
+    for _ in range(2):
+        with pytest.raises(Crash):
+            tasks.ingest_file(job.pk)
+    assert spy.calls == ["open", "open"]  # exactly the cap still runs
+    tasks.ingest_file(job.pk)  # one over: no crash, no parse, job failed
+    assert spy.calls == ["open", "open"]
+    assert Job.objects.get(pk=job.pk).status == Job.Status.FAILED
+
+
+def test_a_crash_before_any_page_is_resumed_in_full_when_the_worker_comes_back(alice, storage, use_parser):
+    use_parser(SpyParser(crash_on_open=True))
+    job = make_job(alice, storage)
+    with pytest.raises(Crash):
+        tasks.ingest_file(job.pk)
+    healthy = use_parser(SpyParser())
+    tasks.ingest_file(job.pk)
+    assert Job.objects.get(pk=job.pk).status == Job.Status.COMPLETED and healthy.parsed == [1, 2, 3]
+
+
+def test_the_page_marker_is_cleared_after_an_ordinary_failure_even_on_the_last_page(alice, storage, use_parser):
+    use_parser(SpyParser(fail=[3]))  # last page: no later success can clear the marker by accident
+    job = make_job(alice, storage)
+    tasks.ingest_file(job.pk)
+    assert Job.objects.get(pk=job.pk).current_page is None
+
+
+def test_a_retry_that_kills_the_worker_does_not_loop(alice, storage, use_parser):
+    use_parser(SpyParser(fail=[2]))
+    first = make_job(alice, storage)
+    tasks.ingest_file(first.pk)
+    retry = Job.objects.create(file=first.file, kind=Job.Kind.RETRY_PAGE)
+    spy = use_parser(SpyParser(crash=[2]))
+    with pytest.raises(Crash):
+        tasks.retry_page(retry.pk, 2)
+    tasks.retry_page(retry.pk, 2)  # redelivered
+    retry.refresh_from_db()
+    assert retry.status == Job.Status.COMPLETED_WITH_ERRORS and "worker process stopped" in retry.error
+    assert spy.calls == [2]  # the second delivery did not touch the parser
+    seg = pages(first)[2]
+    assert seg.status == "failed" and "worker process stopped" in seg.error and seg.attempts == 2  # ingest try + the retry that died
+
+
+def test_a_pdf_with_too_many_pages_is_refused_before_any_page_is_made(alice, storage, use_parser, settings):
+    settings.MAX_PDF_PAGES = 2
+    use_parser(SpyParser())
+    job = make_job(alice, storage)  # 3 pages
+    tasks.ingest_file(job.pk)
+    job.refresh_from_db()
+    assert job.status == Job.Status.FAILED and "3 pages; the limit is 2" in job.error
+    assert not SegmentRow.objects.exists() and not ChunkRow.objects.exists()
+
+
+def test_a_pdf_at_the_page_limit_is_accepted(alice, storage, use_parser, settings):
+    settings.MAX_PDF_PAGES = 3
+    use_parser(SpyParser())
+    job = make_job(alice, storage)
+    tasks.ingest_file(job.pk)
+    assert Job.objects.get(pk=job.pk).status == Job.Status.COMPLETED
 
 
 def test_a_finished_job_delivered_again_does_nothing(alice, storage, use_parser):

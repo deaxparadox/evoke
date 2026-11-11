@@ -20,18 +20,41 @@ logger = logging.getLogger(__name__)
 DONE = (Job.Status.COMPLETED, Job.Status.COMPLETED_WITH_ERRORS, Job.Status.FAILED)
 
 
-def _begin(job_id: int, kind: str) -> Job | None:
-    """Mark the job running. Returns None when it already finished (a repeated delivery does nothing)."""
+CRASH_MESSAGE = "the worker process stopped while handling this page (crash, out of memory or time limit)"
+
+
+def _begin(job_id: int, kind: str) -> tuple[Job | None, int | None]:
+    """Mark the job running. Returns (job, recovered_page).
+
+    The job is None when there is nothing to do: it already finished (a repeated delivery does nothing), or it has been
+    picked up too often. `recovered_page` is the page an earlier run died on, now marked failed, if there was one.
+    """
     with transaction.atomic():
         job = Job.objects.select_for_update().select_related("file").get(pk=job_id)
         if job.kind != kind:
             raise ValueError(f"job {job_id} is a {job.kind} job, not {kind}")
         if job.status in DONE:
-            return None
+            return None, None
+        recovered = None
+        if job.status == Job.Status.RUNNING and job.current_page is not None:
+            # An earlier run died on this page (it never cleared the marker). Give it up, so the file can go on.
+            recovered = job.current_page
+            row = SegmentRow.objects.filter(file=job.file, index=recovered).first()
+            if row:
+                SegmentRow.objects.filter(pk=row.pk).update(
+                    status=SegmentStatus.FAILED.value, error=CRASH_MESSAGE, attempts=row.attempts + 1
+                )
+            job.current_page = None
+        job.deliveries += 1
+        if job.deliveries > settings.TASK_MAX_DELIVERIES:
+            job.status, job.finished_at = Job.Status.FAILED, timezone.now()
+            job.error = f"the worker stopped {job.deliveries - 1} times while running this job; giving up"
+            job.save(update_fields=["status", "finished_at", "error", "deliveries", "current_page"])
+            return None, recovered
         job.status = Job.Status.RUNNING  # a job found already running is resumed: an earlier run crashed
         job.started_at = job.started_at or timezone.now()
-        job.save(update_fields=["status", "started_at"])
-    return job
+        job.save(update_fields=["status", "started_at", "deliveries", "current_page"])
+    return job, recovered
 
 
 def _finish(job: Job, status: str, error: str = "") -> None:
@@ -46,10 +69,13 @@ def _load_pdf(file: File, storage) -> bytes:
     return data
 
 
-def _process_page(file: File, data: bytes, page: int, parser) -> bool:
+def _process_page(job: Job, data: bytes, page: int, parser) -> bool:
     """Parse, chunk, embed and save one page. A page that fails is marked failed and never raises. True on success."""
+    file = job.file
     owner_id, file_id = str(file.owner_id), str(file.pk)
     row = SegmentRow.objects.get(file=file, index=page)
+    # Written (and committed) before the risky work. If the process dies, the next run finds it and knows which page did it.
+    Job.objects.filter(pk=job.pk).update(current_page=page)
     try:
         segment = parser.parse_page(data, page, file_id)
         chunks = chunk_segment(segment, settings.CHUNK_MAX_WORDS, settings.CHUNK_OVERLAP_WORDS)
@@ -67,6 +93,7 @@ def _process_page(file: File, data: bytes, page: int, parser) -> bool:
             row.adapters_tried = [*row.adapters_tried, parser.name]
             row.attempts += 1
             row.save()
+            Job.objects.filter(pk=job.pk).update(current_page=None)
         return True
     except SoftTimeLimitExceeded:
         raise
@@ -76,12 +103,13 @@ def _process_page(file: File, data: bytes, page: int, parser) -> bool:
             status=SegmentStatus.FAILED.value, error=f"{type(e).__name__}: {e}"[:2000], attempts=row.attempts + 1,
             adapters_tried=[*row.adapters_tried, parser.name],
         )
+        Job.objects.filter(pk=job.pk).update(current_page=None)
         return False
 
 
 @shared_task(name="documents.ingest_file")
 def ingest_file(job_id: int) -> None:
-    job = _begin(job_id, Job.Kind.INGEST)
+    job, _ = _begin(job_id, Job.Kind.INGEST)
     if job is None:
         return
     file = job.file
@@ -91,12 +119,15 @@ def ingest_file(job_id: int) -> None:
         count = parser.page_count(data)
         if count < 1:
             raise ValueError("the PDF has no pages")
+        if count > settings.MAX_PDF_PAGES:
+            raise ValueError(f"the PDF has {count} pages; the limit is {settings.MAX_PDF_PAGES}")
         SegmentRow.objects.bulk_create(
             [SegmentRow(file=file, index=i) for i in range(1, count + 1)], ignore_conflicts=True
         )
-        todo = SegmentRow.objects.filter(file=file).exclude(status=SegmentStatus.PARSED.value).order_by("index").values_list("index", flat=True)
+        # Only pages nobody has tried yet. A failed page (including one a dead worker was stuck on) waits for an explicit retry.
+        todo = SegmentRow.objects.filter(file=file, status=SegmentStatus.PENDING.value).order_by("index").values_list("index", flat=True)
         for page in list(todo):
-            _process_page(file, data, page, parser)
+            _process_page(job, data, page, parser)
     except SoftTimeLimitExceeded:
         left = SegmentRow.objects.filter(file=file).exclude(status__in=[SegmentStatus.PARSED.value, SegmentStatus.FAILED.value]).count()
         _finish(job, Job.Status.FAILED, f"time limit reached; {left} pages not done, they stay pending")
@@ -112,14 +143,17 @@ def ingest_file(job_id: int) -> None:
 
 @shared_task(name="documents.retry_page")
 def retry_page(job_id: int, page: int, adapter: str | None = None) -> None:
-    job = _begin(job_id, Job.Kind.RETRY_PAGE)
+    job, recovered = _begin(job_id, Job.Kind.RETRY_PAGE)
     if job is None:
+        return
+    if recovered == page:  # the earlier run died on this very page: do not try it a second time
+        _finish(job, Job.Status.COMPLETED_WITH_ERRORS, f"page {page} failed again: {CRASH_MESSAGE}")
         return
     file = job.file
     try:
         data = _load_pdf(file, wiring.get_storage())
         parser = wiring.get_parser(adapter)
-        ok = _process_page(file, data, page, parser)
+        ok = _process_page(job, data, page, parser)
     except SoftTimeLimitExceeded:
         _finish(job, Job.Status.FAILED, "time limit reached")
         return

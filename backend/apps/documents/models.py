@@ -42,6 +42,10 @@ class Job(models.Model):
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.QUEUED)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # How many times a worker has picked this job up, and which page it was working on. Written before the work, so they
+    # survive a worker that dies mid-page (BUG-20261111-2210).
+    deliveries = models.PositiveIntegerField(default=0)
+    current_page = models.PositiveIntegerField(null=True, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
