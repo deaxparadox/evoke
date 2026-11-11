@@ -5,10 +5,10 @@
 
 import logging
 
-from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
+from celery import Task, shared_task
+from celery.exceptions import SoftTimeLimitExceeded, TimeLimitExceeded
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from ragling.core.models import SegmentStatus
 from ragling.pipeline.chunker import chunk_segment
@@ -21,6 +21,31 @@ DONE = (Job.Status.COMPLETED, Job.Status.COMPLETED_WITH_ERRORS, Job.Status.FAILE
 
 
 CRASH_MESSAGE = "the worker process stopped while handling this page (crash, out of memory or time limit)"
+
+
+class IngestTask(Task):
+    """Base for both tasks. Closes the job when Celery gives up on the task without our code getting to run.
+
+    After a hard time limit the worker's main process kills the child, acknowledges the message and calls this hook
+    (celery/worker/request.py, on_timeout). The job would otherwise stay `running` for ever and block retries.
+    """
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        job_id = args[0] if args else kwargs.get("job_id")
+        if isinstance(exc, TimeLimitExceeded):
+            reason = f"time limit exceeded ({settings.CELERY_TASK_TIME_LIMIT} s); pages not done stay pending"
+        else:
+            reason = f"{type(exc).__name__}: {exc}"
+        try:
+            Job.objects.filter(pk=job_id, status__in=[Job.Status.QUEUED, Job.Status.RUNNING]).update(
+                status=Job.Status.FAILED, error=reason[:2000], finished_at=timezone.now()
+            )
+        except Exception:  # a hook that raises would hide the real failure
+            logger.exception("could not close job %s after its task failed", job_id)
+        finally:
+            # After a hard timeout this runs in the worker's main process, which forks the replacement child: a
+            # connection left open here would be shared with it.
+            connection.close()
 
 
 def _begin(job_id: int, kind: str) -> tuple[Job | None, int | None]:
@@ -107,7 +132,7 @@ def _process_page(job: Job, data: bytes, page: int, parser) -> bool:
         return False
 
 
-@shared_task(name="documents.ingest_file")
+@shared_task(base=IngestTask, name="documents.ingest_file")
 def ingest_file(job_id: int) -> None:
     job, _ = _begin(job_id, Job.Kind.INGEST)
     if job is None:
@@ -141,7 +166,7 @@ def ingest_file(job_id: int) -> None:
             f"{failed} pages failed" if failed else "")
 
 
-@shared_task(name="documents.retry_page")
+@shared_task(base=IngestTask, name="documents.retry_page")
 def retry_page(job_id: int, page: int, adapter: str | None = None) -> None:
     job, recovered = _begin(job_id, Job.Kind.RETRY_PAGE)
     if job is None:

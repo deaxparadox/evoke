@@ -387,3 +387,75 @@ def test_unknown_parser_name_fails_loudly(settings):
 def test_time_limits_are_ordered_and_visibility_timeout_is_longer(settings):
     assert settings.CELERY_TASK_SOFT_TIME_LIMIT < settings.CELERY_TASK_TIME_LIMIT
     assert settings.CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"] > settings.CELERY_TASK_TIME_LIMIT
+
+
+# ---- a task Celery gives up on (BUG-20261111-2211) ----
+
+@pytest.fixture
+def closed_connections(monkeypatch):
+    """The hook closes the database connection; inside a test transaction that must not really happen."""
+    closed = []
+    monkeypatch.setattr(tasks.connection, "close", lambda: closed.append(True))
+    return closed
+
+
+@pytest.mark.parametrize("status", [Job.Status.RUNNING, Job.Status.QUEUED])
+def test_a_job_killed_by_the_hard_time_limit_is_closed_as_failed(alice, storage, closed_connections, settings, status):
+    from celery.exceptions import TimeLimitExceeded
+    settings.CELERY_TASK_TIME_LIMIT = 900
+    job = make_job(alice, storage, status=status)
+    tasks.ingest_file.on_failure(TimeLimitExceeded(900), "task-id", [job.pk], {}, None)
+    job.refresh_from_db()
+    assert job.status == Job.Status.FAILED and job.finished_at
+    assert "time limit exceeded (900 s)" in job.error and "stay pending" in job.error
+
+
+def test_other_failures_are_named_in_the_job_error(alice, storage, closed_connections):
+    job = make_job(alice, storage, status=Job.Status.RUNNING)
+    tasks.retry_page.on_failure(MemoryError("boom"), "task-id", [], {"job_id": job.pk}, None)  # job id given as keyword
+    job.refresh_from_db()
+    assert job.status == Job.Status.FAILED and "MemoryError: boom" in job.error
+
+
+@pytest.mark.parametrize("final", [Job.Status.COMPLETED, Job.Status.COMPLETED_WITH_ERRORS, Job.Status.FAILED])
+def test_a_job_that_already_finished_is_left_alone(alice, storage, closed_connections, final):
+    job = make_job(alice, storage, status=final)
+    Job.objects.filter(pk=job.pk).update(error="original")
+    tasks.ingest_file.on_failure(RuntimeError("late"), "task-id", [job.pk], {}, None)
+    job.refresh_from_db()
+    assert job.status == final and job.error == "original"
+
+
+def test_the_hook_never_raises_and_always_closes_the_connection(storage, closed_connections):
+    tasks.ingest_file.on_failure(RuntimeError("x"), "task-id", [999999], {}, None)  # no such job
+    tasks.ingest_file.on_failure(RuntimeError("x"), "task-id", [], {}, None)  # no job id at all
+    assert closed_connections == [True, True]
+
+
+def test_a_failed_job_no_longer_blocks_retries(alice, storage, closed_connections):
+    job = make_job(alice, storage, status=Job.Status.RUNNING)
+    SegmentRow.objects.create(file=job.file, index=1, status="pending")
+    assert api(alice).post(f"/api/files/{job.file.pk}/pages/1/retry").status_code == 409
+    tasks.ingest_file.on_failure(RuntimeError("killed"), "task-id", [job.pk], {}, None)
+    assert api(alice).post(f"/api/files/{job.file.pk}/pages/1/retry").status_code == 202
+
+
+def test_both_tasks_use_the_hook_and_celery_really_calls_it(alice, storage, closed_connections):
+    assert all(isinstance(t, tasks.IngestTask) for t in (tasks.ingest_file, tasks.retry_page))
+    job = make_job(alice, storage, kind=Job.Kind.RETRY_PAGE)  # a retry job handed to ingest_file: raises ValueError
+    result = tasks.ingest_file.apply(args=[job.pk])  # runs through Celery's own error path
+    assert result.failed()
+    job.refresh_from_db()
+    assert job.status == Job.Status.FAILED and "ValueError" in job.error
+
+
+def test_a_database_error_inside_the_hook_is_logged_not_raised_and_the_connection_still_closes(alice, storage, closed_connections, monkeypatch, caplog):
+    job = make_job(alice, storage, status=Job.Status.RUNNING)
+
+    def broken(*a, **k):
+        raise RuntimeError("database is gone")
+
+    monkeypatch.setattr(tasks.Job.objects, "filter", broken)
+    tasks.ingest_file.on_failure(RuntimeError("original failure"), "task-id", [job.pk], {}, None)  # must not raise
+    assert closed_connections == [True]
+    assert "could not close job" in caplog.text
