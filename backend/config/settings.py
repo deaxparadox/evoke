@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
     'apps.accounts',
     'apps.documents',
 ]
@@ -88,6 +89,16 @@ S3_ENDPOINT = os.environ['S3_ENDPOINT']
 S3_ACCESS_KEY = os.environ['S3_ACCESS_KEY']
 S3_SECRET_KEY = os.environ['S3_SECRET_KEY']
 S3_BUCKET = os.environ['S3_BUCKET']
+
+REST_FRAMEWORK = {
+    # Session login only (decision 2026-11-03). Writes from a logged-in session need the CSRF token.
+    'DEFAULT_AUTHENTICATION_CLASSES': ['rest_framework.authentication.SessionAuthentication'],
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+}
+
+# Tuning knob with a safe default (notepad decision 13): the largest upload accepted, in bytes.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 DATABASES = {
     'default': {
